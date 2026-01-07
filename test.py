@@ -35,7 +35,6 @@ def preprocess_image(img_path):
 
 
 def run_evaluation():
-    # טעינת המודל ל-GPU (3080)
     session = ort.InferenceSession(CONFIG["model_path"],
                                    providers=['CUDAExecutionProvider', 'CPUExecutionProvider'])
     input_name = session.get_inputs()[0].name
@@ -47,20 +46,16 @@ def run_evaluation():
 
     print(f"🔍 Starting evaluation on: {CONFIG['dataset_root']}")
 
-    # מעבר על כל סוגי הבדיקות (good, bent_wire, וכו')
     for defect_type in test_dir.iterdir():
         if not defect_type.is_dir(): continue
 
         images = list(defect_type.glob("*.png"))
         for img_path in tqdm(images, desc=f"Testing {defect_type.name}"):
-            # 1. עיבוד תמונה
             img_input, _ = preprocess_image(str(img_path))
 
-            # 2. הרצה על המודל
             outputs = session.run(None, {input_name: img_input})
             pred_mask = 1 / (1 + np.exp(-outputs[0][0][0]))  # Sigmoid
 
-            # 3. בדיקה מול Ground Truth (אם קיים)
             dice_score = 0
             is_actually_defective = (defect_type.name != "good")
 
@@ -71,7 +66,6 @@ def run_evaluation():
                     gt_mask = cv2.resize(gt_mask, (CONFIG["image_size"], CONFIG["image_size"])) / 255.0
                     dice_score = calculate_dice(pred_mask, gt_mask)
 
-            # 4. החלטת המודל (האם הוא חושב שיש פגם)
             predicted_defective = np.sum(pred_mask > CONFIG["threshold"]) > CONFIG["min_defect_area"]
 
             results.append({
@@ -80,13 +74,12 @@ def run_evaluation():
                 "correct_decision": (predicted_defective == is_actually_defective)
             })
 
-    # --- סיכום דוח אמינות ---
     total_imgs = len(results)
     avg_dice = np.mean([r['dice'] for r in results if r['category'] != 'good'])
     accuracy = np.mean([r['correct_decision'] for r in results]) * 100
 
     print("\n" + "=" * 30)
-    print("📊 MODEL RELIABILITY REPORT")
+    print(" MODEL RELIABILITY REPORT")
     print("=" * 30)
     print(f"Total Images Tested:  {total_imgs}")
     print(f"Classification Accuracy: {accuracy:.2f}%")
