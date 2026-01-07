@@ -19,7 +19,7 @@ CONFIG = {
     "batch_size": 16,
     "epochs": 50,
     "lr": 1e-4,
-    "base_path": "D:\\dataset\\mvtec_anomaly_detection",
+    "base_path": "/home/inonzr/datasets/mvtec_anomaly_detection",
     "device": torch.device('cuda' if torch.cuda.is_available() else 'cpu'),
 }
 

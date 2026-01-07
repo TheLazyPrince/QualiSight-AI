@@ -1,63 +1,98 @@
 import cv2
 import numpy as np
 import onnxruntime as ort
-import matplotlib.pyplot as plt
 import os
+from pathlib import Path
+from tqdm import tqdm
 
+CONFIG = {
+    "model_path": "checkpoints/best_unet_model.onnx",
+    "dataset_root": "/home/inonzr/datasets/mvtec_anomaly_detection/cable",
+    "image_size": 256,
+    "threshold": 0.5,
+    "min_defect_area": 50
+}
 
-def calculate_dice(pred, target, threshold=0.5):
-    pred = (pred > threshold).astype(np.float32)
+def calculate_dice(pred, target):
+    pred = (pred > CONFIG["threshold"]).astype(np.float32)
     target = (target > 0.5).astype(np.float32)
     intersection = (pred * target).sum()
     dice = (2. * intersection) / (pred.sum() + target.sum() + 1e-7)
     return dice
 
 
-def evaluate_defect(model_path, image_path, mask_path=None):
-    session = ort.InferenceSession(model_path, providers=['CUDAExecutionProvider', 'CPUExecutionProvider'])
-    input_name = session.get_inputs()[0].name
+def preprocess_image(img_path):
+    img = cv2.imread(img_path)
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    resized = cv2.resize(img, (CONFIG["image_size"], CONFIG["image_size"]))
 
-    orig_img = cv2.imread(image_path)
-    orig_img = cv2.cvtColor(orig_img, cv2.COLOR_BGR2RGB)
-    resized = cv2.resize(orig_img, (256, 256))
-
+    # נרמול (זהה למה שעשית באימון)
     img_input = resized.astype(np.float32) / 255.0
     img_input = (img_input - np.array([0.485, 0.456, 0.406])) / np.array([0.229, 0.224, 0.225])
     img_input = img_input.transpose(2, 0, 1)
     img_input = np.expand_dims(img_input, axis=0).astype(np.float32)
+    return img_input, resized
 
-    outputs = session.run(None, {input_name: img_input})
-    pred_mask = 1 / (1 + np.exp(-outputs[0][0][0]))
 
-    dice_score = None
-    if mask_path and os.path.exists(mask_path):
-        gt_mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
-        gt_mask = cv2.resize(gt_mask, (256, 256)) / 255.0
-        dice_score = calculate_dice(pred_mask, gt_mask)
+def run_evaluation():
+    # טעינת המודל ל-GPU (3080)
+    session = ort.InferenceSession(CONFIG["model_path"],
+                                   providers=['CUDAExecutionProvider', 'CPUExecutionProvider'])
+    input_name = session.get_inputs()[0].name
 
-    is_defective = np.sum(pred_mask > 0.5) > 50
-    result_text = "FAIL (Defect Detected)" if is_defective else "PASS (Good)"
+    test_dir = Path(CONFIG["dataset_root"]) / "test"
+    gt_dir = Path(CONFIG["dataset_root"]) / "ground_truth"
 
-    heatmap = cv2.applyColorMap(np.uint8(255 * pred_mask), cv2.COLORMAP_JET)
-    heatmap = cv2.cvtColor(heatmap, cv2.COLOR_BGR2RGB)
-    overlay = cv2.addWeighted(resized, 0.6, heatmap, 0.4, 0)
+    results = []
 
-    plt.figure(figsize=(15, 5))
-    plt.subplot(1, 3, 1)
-    plt.imshow(resized);
-    plt.title("Original Image")
-    plt.subplot(1, 3, 2)
-    plt.imshow(pred_mask, cmap='hot');
-    plt.title(f"Predicted Mask\nDice: {f'{dice_score:.4f}' if dice_score else 'N/A'}")
-    plt.subplot(1, 3, 3)
-    plt.imshow(overlay);
-    plt.title(f"Decision: {result_text}")
-    plt.show()
+    print(f"🔍 Starting evaluation on: {CONFIG['dataset_root']}")
+
+    # מעבר על כל סוגי הבדיקות (good, bent_wire, וכו')
+    for defect_type in test_dir.iterdir():
+        if not defect_type.is_dir(): continue
+
+        images = list(defect_type.glob("*.png"))
+        for img_path in tqdm(images, desc=f"Testing {defect_type.name}"):
+            # 1. עיבוד תמונה
+            img_input, _ = preprocess_image(str(img_path))
+
+            # 2. הרצה על המודל
+            outputs = session.run(None, {input_name: img_input})
+            pred_mask = 1 / (1 + np.exp(-outputs[0][0][0]))  # Sigmoid
+
+            # 3. בדיקה מול Ground Truth (אם קיים)
+            dice_score = 0
+            is_actually_defective = (defect_type.name != "good")
+
+            if is_actually_defective:
+                mask_path = gt_dir / defect_type.name / (img_path.stem + "_mask.png")
+                if mask_path.exists():
+                    gt_mask = cv2.imread(str(mask_path), cv2.IMREAD_GRAYSCALE)
+                    gt_mask = cv2.resize(gt_mask, (CONFIG["image_size"], CONFIG["image_size"])) / 255.0
+                    dice_score = calculate_dice(pred_mask, gt_mask)
+
+            # 4. החלטת המודל (האם הוא חושב שיש פגם)
+            predicted_defective = np.sum(pred_mask > CONFIG["threshold"]) > CONFIG["min_defect_area"]
+
+            results.append({
+                "category": defect_type.name,
+                "dice": dice_score,
+                "correct_decision": (predicted_defective == is_actually_defective)
+            })
+
+    # --- סיכום דוח אמינות ---
+    total_imgs = len(results)
+    avg_dice = np.mean([r['dice'] for r in results if r['category'] != 'good'])
+    accuracy = np.mean([r['correct_decision'] for r in results]) * 100
+
+    print("\n" + "=" * 30)
+    print("📊 MODEL RELIABILITY REPORT")
+    print("=" * 30)
+    print(f"Total Images Tested:  {total_imgs}")
+    print(f"Classification Accuracy: {accuracy:.2f}%")
+    print(f"Mean Dice Score (Defects): {avg_dice:.4f}")
+    print("=" * 30)
 
 
 if __name__ == "__main__":
-    evaluate_defect(
-        "checkpoints/best_unet_model.onnx",
-        "D:\\dataset\\mvtec_anomaly_detection\\cable\\test\\bent_wire\\000.png",
-        "D:\\dataset\\mvtec_anomaly_detection\\cable\\ground_truth\\bent_wire\\000_mask.png"
-    )
+    run_evaluation()
