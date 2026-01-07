@@ -23,7 +23,7 @@ The training process automatically generates visualizations comparing the input 
 ### Training Progress Example
 Below is an example of the model's output during training. It shows the original image, the actual defect mask (Ground Truth), and the model's prediction overlaid as a heatmap.
 
-![Training Progress Example](./results_visuals/YOUR_IMAGE_HERE.png)
+![Training Progress Example](epoch_45.png)
 *(Figure: Left: Original Image, Center: Ground Truth Defect Mask, Right: Predicted Heatmap Overlay)*
 
 ---
