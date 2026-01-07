@@ -17,7 +17,7 @@ warnings.filterwarnings("ignore", category=UserWarning)
 CONFIG = {
     "image_size": 256,
     "batch_size": 16,
-    "epochs": 50,
+    "epochs": 100,
     "lr": 1e-4,
     "base_path": "/home/inonzr/datasets/mvtec_anomaly_detection",
     "device": torch.device('cuda' if torch.cuda.is_available() else 'cpu'),
