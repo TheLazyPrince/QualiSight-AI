@@ -1,3 +1,4 @@
 *.png
 /checkpoints
 /__pycache__
+/results_visuals_good
