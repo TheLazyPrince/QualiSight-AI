@@ -12,7 +12,6 @@ The goal of this project is to identify defective regions in images of manufactu
 * **Data Augmentation:** Utilizes the `albumentations` library for augmentations like resizing, flipping, rotation, and normalization.
 * **Training Monitoring:** Saves visual results (original, ground truth, heatmap overlay) periodically during training to the `results_visuals` directory.
 * **Model Export:** Automatically exports the best-performing model (lowest loss) to ONNX format for efficient inference.
-* **Evaluation Pipeline:** Includes a dedicated script (`eval.py`) using ONNX Runtime to calculate Dice scores and classification accuracy on test sets.
 
 ---
 
